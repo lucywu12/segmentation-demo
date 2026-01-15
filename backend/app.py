@@ -1,7 +1,7 @@
 from flask import Flask, send_from_directory, request, jsonify
 import os, requests
 
-app = Flask(__name__, static_folder="frontend/build")
+app = Flask(__name__, static_folder="../frontend/build")
 
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
