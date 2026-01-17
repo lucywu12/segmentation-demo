@@ -3,15 +3,16 @@ import React, { useState } from "react";
 function App() {
   const [file, setFile] = useState(null);
   const [message, setMessage] = useState("");
-  const [zipFilename, setZipFilename] = useState(null); // store the prepared zip name
+  const [zipFilename, setZipFilename] = useState(null);
+  const [inferenceStarted, setInferenceStarted] = useState(false);
+  const [s3Files, setS3Files] = useState([]);
 
-  // Upload file to S3
+  // Step 0: Upload file
   const handleUpload = async () => {
     if (!file) {
       setMessage("Please select a file first");
       return;
     }
-
     try {
       const res = await fetch("/generate-presigned-url", {
         method: "POST",
@@ -30,19 +31,21 @@ function App() {
     }
   };
 
-  // Run inference via EC2 SSM
+  // Step 1: Run inference
   const handleRunInference = async () => {
     try {
       const res = await fetch("/run-inference", { method: "POST" });
       const data = await res.json();
       setMessage(data.status || "Inference started");
+      setInferenceStarted(true);
+      setZipFilename(null); // clear old zip if any
     } catch (err) {
       console.error(err);
       setMessage("Inference failed");
     }
   };
 
-  // Prepare zip & upload to S3
+  // Step 2: Prepare output zip
   const handlePrepareDownload = async () => {
     try {
       const res = await fetch("/prepare-download", { method: "POST" });
@@ -61,13 +64,12 @@ function App() {
     }
   };
 
-  // Generate presigned URL & download
+  // Step 3: Download zip
   const handleDownload = async () => {
     if (!zipFilename) {
       setMessage("No prepared file available. Please prepare download first.");
       return;
     }
-
     try {
       const res = await fetch(`/download-prepared-output?filename=${zipFilename}`);
       const data = await res.json();
@@ -89,28 +91,86 @@ function App() {
     }
   };
 
+  // List files in S3 bucket
+  const handleListFiles = async () => {
+    try {
+      const res = await fetch("/list-s3-files");
+      const data = await res.json();
+      if (data.files) {
+        setS3Files(data.files);
+        setMessage(`Found ${data.files.length} files.`);
+      } else {
+        setMessage("No files found or failed to list.");
+      }
+    } catch (err) {
+      console.error(err);
+      setMessage("Failed to list input files.");
+    }
+  };
+
+  // Clear S3 and EC2 inputs/outputs folders
+  const handleClearFolders = async () => {
+    if (!window.confirm("Are you sure you want to clear existing inputs/outputs? This cannot be undone.")) return;
+    try {
+      const res = await fetch("/clear-folders", { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        setMessage("Files cleared. You can start fresh.");
+        setInferenceStarted(false);
+        setZipFilename(null);
+      } else {
+        setMessage("Failed to clear folders.");
+      }
+    } catch (err) {
+      console.error(err);
+      setMessage("Error clearing folders.");
+    }
+  };
+
   return (
-    <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
-      <h1>AI Inference for Segmentation</h1>
+    <div style={{ padding: "2rem", fontFamily: "sans-serif", maxWidth: "800px", margin: "auto" }}>
+      <h1>AI Segmentation Demo</h1>
 
-      <input type="file" onChange={(e) => setFile(e.target.files[0])} />
-      <button onClick={handleUpload} style={{ marginLeft: "1rem" }}>
-        Upload
-      </button>
+      <p><strong>Instructions:</strong></p>
+      <ol>
+        <li>Upload input files (must be .gz only).</li>
+        <li>Run inference.</li>
+        <li>Prepare outputs as a zip file.</li>
+        <li>Download the prepared zip.</li>
+      </ol>
 
-      <button onClick={handleRunInference} style={{ marginLeft: "1rem" }}>
-        Run Inference
-      </button>
+      <div style={{ marginBottom: "1rem" }}>
+        <input type="file" onChange={(e) => setFile(e.target.files[0])} />
+        <button onClick={handleUpload} style={{ marginLeft: "1rem" }}>Upload</button>
+      </div>
 
-      <button onClick={handlePrepareDownload} style={{ marginLeft: "1rem" }}>
-        Prepare Download
-      </button>
+      <div style={{ marginBottom: "1rem" }}>
+        <button onClick={handleRunInference} disabled={!file}>Run Inference</button>
+        <button onClick={handlePrepareDownload} disabled={!inferenceStarted} style={{ marginLeft: "1rem" }}>
+          Prepare Download
+        </button>
+        <button onClick={handleDownload} disabled={!zipFilename} style={{ marginLeft: "1rem" }}>
+          Download Output
+        </button>
+      </div>
 
-      <button onClick={handleDownload} style={{ marginLeft: "1rem" }}>
-        Download Output
-      </button>
+      <div style={{ marginBottom: "1rem" }}>
+        <button onClick={handleListFiles}>List Files</button>
+        <button onClick={handleClearFolders} style={{ marginLeft: "1rem", color: "red" }}>
+          Clear Files
+        </button>
+      </div>
 
-      <p>{message}</p>
+      {s3Files.length > 0 && (
+        <div style={{ marginBottom: "1rem" }}>
+          <strong>Files:</strong>
+          <ul>
+            {s3Files.map(f => <li key={f}>{f}</li>)}
+          </ul>
+        </div>
+      )}
+
+      <p><strong>Status:</strong> {message}</p>
     </div>
   );
 }

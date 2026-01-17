@@ -34,6 +34,48 @@ def serve(path):
         from flask import send_from_directory
         return send_from_directory(app.static_folder, "index.html")
 
+##############################################
+    
+# List files in S3 bucket
+@app.route("/list-s3-files", methods=["GET"])
+def list_s3_files():
+    try:
+        # List objects in your outputs folder
+        response = s3_client.list_objects_v2(Bucket=S3_BUCKET, Prefix="inputs/")
+        files = []
+        if "Contents" in response:
+            for obj in response["Contents"]:
+                # just grab the file name, remove the prefix
+                key = obj["Key"]
+                files.append(key)
+        return jsonify({"files": files})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Clear folders in S3 and EC2
+@app.route("/clear-folders", methods=["POST"])
+def clear_folders():
+    try:
+        for prefix in ["inputs/", "outputs/"]:
+            response = s3_client.list_objects_v2(Bucket=S3_BUCKET, Prefix=prefix)
+            if "Contents" in response:
+                for obj in response["Contents"]:
+                    s3_client.delete_object(Bucket=S3_BUCKET, Key=obj["Key"])
+
+        command = """
+        sudo rm -rf /home/ec2-user/suprem/inputs/* &&
+        sudo rm -rf /home/ec2-user/suprem/outputs/*
+        """
+        ssm.send_command(
+            InstanceIds=[EC2_INSTANCE_ID],
+            DocumentName="AWS-RunShellScript",
+            Parameters={"commands": [command]},
+            TimeoutSeconds=300,
+        )
+
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
 
 # Generate presigned URL for upload
 @app.route("/generate-presigned-url", methods=["POST"])
