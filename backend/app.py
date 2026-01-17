@@ -63,7 +63,7 @@ def clear_folders():
                     s3_client.delete_object(Bucket=S3_BUCKET, Key=obj["Key"])
 
         command = """
-        sudo rm -rf /home/ec2-user/suprem/inputs/* &&
+        sudo rm -rf /home/ec2-user/suprem/inputs/*;
         sudo rm -rf /home/ec2-user/suprem/outputs/*
         """
         ssm.send_command(
