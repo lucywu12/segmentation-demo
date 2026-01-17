@@ -5,6 +5,8 @@ import os
 import time
 import subprocess
 import traceback
+from datetime import datetime
+import zipfile
 
 app = Flask(__name__, static_folder="../frontend/build")
 
@@ -86,3 +88,51 @@ def run_inference():
         return jsonify({"error": str(e)}), 500
     
 ##############################################
+
+# Retreive zipped output files from EC2 and download
+# Prepare download (zip & upload to S3)
+@app.route("/prepare-download", methods=["POST"])
+def prepare_download():
+    try:
+        timestamp = int(time.time())
+        zip_filename = f"outputs_{timestamp}.zip"
+        s3_key = f"outputs/{zip_filename}"
+
+        command = f"""
+        cd /home/ec2-user/suprem &&
+        zip -r {zip_filename} outputs &&
+        aws s3 cp {zip_filename} s3://{S3_BUCKET}/{s3_key}
+        """
+
+        ssm.send_command(
+            InstanceIds=[EC2_INSTANCE_ID],
+            DocumentName="AWS-RunShellScript",
+            Parameters={"commands": [command]},
+            TimeoutSeconds=3600,
+        )
+
+        # Return filename so frontend knows which zip to download later
+        return jsonify({"filename": zip_filename})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# Download the prepared zip
+@app.route("/download-prepared-output", methods=["GET"])
+def download_prepared_output():
+    try:
+        zip_filename = request.args.get("filename")
+        if not zip_filename:
+            return jsonify({"error": "filename query parameter required"}), 400
+
+        s3_key = f"outputs/{zip_filename}"
+
+        url = s3_client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": S3_BUCKET, "Key": s3_key},
+            ExpiresIn=3600,
+        )
+
+        return jsonify({"url": url, "filename": zip_filename})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
