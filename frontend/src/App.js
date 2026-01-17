@@ -53,6 +53,28 @@ function App() {
         Upload
       </button>
       <p>{message}</p>
+      <button
+        onClick={async () => {
+          setMessage("Running inference...");
+          try {
+            const res = await fetch("/run-inference", { method: "POST" });
+            const data = await res.json();
+
+            if (!res.ok) {
+              setMessage(`Inference failed: ${data.error}`);
+              return;
+            }
+
+            setMessage("Inference completed successfully!");
+          } catch (err) {
+            console.error(err);
+            setMessage("Failed to start inference");
+          }
+        }}
+        style={{ marginLeft: "1rem" }}
+      >
+        Run Inference
+      </button>
     </div>
   );
 }

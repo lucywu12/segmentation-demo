@@ -3,6 +3,8 @@ from dotenv import load_dotenv
 import boto3
 import os
 import time
+import subprocess
+import traceback
 
 app = Flask(__name__, static_folder="../frontend/build")
 
@@ -46,12 +48,41 @@ def generate_presigned_url():
     try:
         url = s3_client.generate_presigned_url(
             "put_object",
-            Params={"Bucket": S3_BUCKET, "Key": s3_key, "ContentType": "application/gzip"},
-            ExpiresIn=300  # 5 minutes
+            Params={"Bucket": S3_BUCKET, "Key": s3_key, "ContentType": "application/x-gzip"},
+            ExpiresIn=300
         )
         return jsonify({"url": url, "s3_key": s3_key})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# if __name__ == "__main__":
-#     app.run(debug=True, port=8000)
+##############################################
+
+# Initialize SSM client
+ssm = boto3.client("ssm", region_name="us-east-1") 
+EC2_INSTANCE_ID = "i-092e2d815d17b926b"
+
+# Run inference on EC2 via SSM
+@app.route("/run-inference", methods=["POST"])
+def run_inference():
+    try:
+        # Command to pull S3 files and run Docker inference
+        command = """
+        aws s3 sync s3://segmentation-demo-s3/inputs/ /home/ec2-user/suprem/inputs &&
+        sudo docker container run --gpus "device=0" -m 128G --rm \
+        -v /home/ec2-user/suprem/inputs:/workspace/inputs \
+        -v /home/ec2-user/suprem/outputs:/workspace/outputs \
+        qchen99/suprem:v1 /bin/bash -c "sh predict.sh"
+        """
+
+        response = ssm.send_command(
+            InstanceIds=[EC2_INSTANCE_ID],
+            DocumentName="AWS-RunShellScript",
+            Parameters={"commands": [command]},
+            TimeoutSeconds=3600,
+        )
+
+        return jsonify({"status": "Inference started", "command_id": response["Command"]["CommandId"]})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
+##############################################
